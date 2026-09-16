@@ -24,14 +24,16 @@ const roomCode = () => {
 const phaseFor = (room) => {
   if (!room.started || room.participants.length < 3) return 'lobby'
   if (room.stories.length < room.participants.length) return 'stories'
+  if (room.reviewingRound !== null) return 'partial'
   return room.voteRoundIndex >= room.stories.length ? 'results' : 'votes'
 }
 const publicState = (room, player) => {
   const phase = phaseFor(room)
   const stories = room.stories.map(({ id, text }) => ({ id, text }))
-  const completedStories = room.stories.slice(0, room.voteRoundIndex)
+  const completedStories = room.stories.slice(0, room.reviewingRound ?? room.voteRoundIndex)
   const partialResults = completedStories.map((story, index) => ({
     storyNumber: index + 1,
+    authorName: room.participants.find((participant) => participant.id === story.authorId)?.name || 'Autor desconocido',
     choices: room.participants.map((participant) => ({
       id: participant.id,
       name: participant.name,
@@ -58,6 +60,8 @@ const publicState = (room, player) => {
     currentOptions: currentStory ? room.participants.map(({ id, name }) => ({ id, name })) : [],
     hasVotedCurrentStory: Boolean(currentStory && currentVotes.some((vote) => vote.voterId === player.id)),
     partialResults,
+    currentPartialResult: room.reviewingRound === null ? null : partialResults[partialResults.length - 1],
+    canContinue: phase === 'partial' && room.hostId === player.id,
     scores,
   }
 }
@@ -67,7 +71,7 @@ app.post('/api/rooms', (request, response) => {
   if (!name) return response.status(400).json({ error: 'Escribe tu nombre.' })
   const code = roomCode()
   const player = { id: randomUUID(), name, token: randomUUID(), story: '' }
-  rooms.set(code, { code, hostId: player.id, started: false, voteRoundIndex: 0, participants: [player], stories: [], votes: [] })
+  rooms.set(code, { code, hostId: player.id, started: false, reviewingRound: null, voteRoundIndex: 0, participants: [player], stories: [], votes: [] })
   response.json({ code, token: player.token })
 })
 
@@ -91,6 +95,16 @@ app.post('/api/rooms/:code/start', (request, response) => {
   if (room.hostId !== player.id) return response.status(403).json({ error: 'Solo el anfitrión puede iniciar la partida.' })
   if (room.participants.length < 3) return response.status(400).json({ error: 'Necesitas al menos tres participantes.' })
   room.started = true
+  response.json(publicState(room, player))
+})
+
+app.post('/api/rooms/:code/continue', (request, response) => {
+  const room = getRoom(request.params.code)
+  const player = getPlayer(room, request.body?.token)
+  if (!room || !player) return response.status(401).json({ error: 'Sala o sesión no válida.' })
+  if (room.hostId !== player.id) return response.status(403).json({ error: 'Solo el anfitrión puede continuar.' })
+  if (room.reviewingRound === null) return response.status(400).json({ error: 'La ronda todavía no está lista para continuar.' })
+  room.reviewingRound = null
   response.json(publicState(room, player))
 })
 
@@ -127,7 +141,10 @@ app.post('/api/rooms/:code/vote', (request, response) => {
   room.votes.push({ voterId: player.id, storyId, authorId })
   const eligibleVoters = room.participants
   const votesForRound = room.votes.filter((vote) => vote.storyId === story.id)
-  if (votesForRound.length === eligibleVoters.length) room.voteRoundIndex += 1
+  if (votesForRound.length === eligibleVoters.length) {
+    room.voteRoundIndex += 1
+    room.reviewingRound = room.voteRoundIndex
+  }
   response.json(publicState(room, player))
 })
 

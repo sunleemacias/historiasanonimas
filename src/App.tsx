@@ -28,10 +28,12 @@ function App() {
   const loadState = async (currentSession: Session) => {
     try {
       const next = await api(`/api/rooms/${currentSession.code}/state`, { headers: { 'x-player-token': currentSession.token } })
+      if (!next.code || !next.phase) throw new Error('El servidor de salas no está disponible. En Render usa un Web Service con `npm start`.')
       setGame(next)
       setError('')
     } catch (requestError) {
       if ((requestError as Error).message === 'Sala o sesión no válida.') { localStorage.removeItem(SESSION_KEY); setSession(null); setGame(null) }
+      else setError((requestError as Error).message)
     }
   }
 
@@ -47,6 +49,7 @@ function App() {
     setBusy(true); setError('')
     try {
       const result = mode === 'create' ? await api('/api/rooms', { method: 'POST', body: JSON.stringify({ name }) }) : await api(`/api/rooms/${code.trim().toUpperCase()}/join`, { method: 'POST', body: JSON.stringify({ name }) })
+      if (!result.code || !result.token) throw new Error('El servidor de salas no está disponible. En Render usa un Web Service con `npm start`.')
       const nextSession = { code: result.code, token: result.token }
       localStorage.setItem(SESSION_KEY, JSON.stringify(nextSession)); setSession(nextSession); setName('')
     } catch (requestError) { setError((requestError as Error).message) } finally { setBusy(false) }

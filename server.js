@@ -21,9 +21,11 @@ const roomCode = () => {
   while (rooms.has(code))
   return code
 }
+const storyTimeExpired = (room) => room.storyDeadline !== null && Date.now() >= room.storyDeadline
 const phaseFor = (room) => {
   if (!room.started || room.participants.length < 3) return 'lobby'
-  if (room.stories.length < room.participants.length) return 'stories'
+  if (room.stories.length < room.participants.length && !storyTimeExpired(room)) return 'stories'
+  if (room.stories.length === 0) return 'stories'
   if (room.reviewingRound !== null) return 'partial'
   return room.voteRoundIndex >= room.stories.length ? 'results' : 'votes'
 }
@@ -51,7 +53,7 @@ const publicState = (room, player) => {
   return {
     code: room.code,
     phase,
-    participants: room.participants.map(({ id, name, storySubmitted }) => ({ id, name, storySubmitted })),
+    participants: room.participants.map((participant) => ({ id: participant.id, name: participant.name, ...(room.hostId === player.id ? { storySubmitted: Boolean(participant.story) } : {}) })),
     me: { id: player.id, name: player.name, storySubmitted: Boolean(player.story) },
     isHost: room.hostId === player.id,
     canStart: room.hostId === player.id && room.participants.length >= 3 && !room.started,
@@ -62,6 +64,9 @@ const publicState = (room, player) => {
     partialResults,
     currentPartialResult: room.reviewingRound === null ? null : partialResults[partialResults.length - 1],
     canContinue: phase === 'partial' && room.hostId === player.id,
+    storyTimeRemaining: room.storyDeadline === null ? null : Math.max(0, Math.ceil((room.storyDeadline - Date.now()) / 1000)),
+    storyTimeExpired: storyTimeExpired(room),
+    submittedCount: room.hostId === player.id ? room.participants.filter((participant) => participant.story).length : null,
     scores,
   }
 }
@@ -71,7 +76,7 @@ app.post('/api/rooms', (request, response) => {
   if (!name) return response.status(400).json({ error: 'Escribe tu nombre.' })
   const code = roomCode()
   const player = { id: randomUUID(), name, token: randomUUID(), story: '' }
-  rooms.set(code, { code, hostId: player.id, started: false, reviewingRound: null, voteRoundIndex: 0, participants: [player], stories: [], votes: [] })
+  rooms.set(code, { code, hostId: player.id, started: false, storyDeadline: null, reviewingRound: null, voteRoundIndex: 0, participants: [player], stories: [], votes: [] })
   response.json({ code, token: player.token })
 })
 
@@ -95,6 +100,7 @@ app.post('/api/rooms/:code/start', (request, response) => {
   if (room.hostId !== player.id) return response.status(403).json({ error: 'Solo el anfitrión puede iniciar la partida.' })
   if (room.participants.length < 3) return response.status(400).json({ error: 'Necesitas al menos tres participantes.' })
   room.started = true
+  room.storyDeadline = Date.now() + 5 * 60 * 1000
   response.json(publicState(room, player))
 })
 
@@ -120,6 +126,7 @@ app.post('/api/rooms/:code/story', (request, response) => {
   const player = getPlayer(room, request.body?.token)
   const text = typeof request.body?.text === 'string' ? request.body.text.trim().slice(0, 240) : ''
   if (!room || !player) return response.status(401).json({ error: 'Sala o sesión no válida.' })
+  if (storyTimeExpired(room)) return response.status(400).json({ error: 'El tiempo para enviar historias terminó.' })
   if (room.stories.length > 0 && phaseFor(room) !== 'stories') return response.status(400).json({ error: 'La votación ya comenzó.' })
   if (!text) return response.status(400).json({ error: 'Escribe una historia.' })
   if (player.story) return response.status(400).json({ error: 'Ya enviaste tu historia.' })

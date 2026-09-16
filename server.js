@@ -22,7 +22,7 @@ const roomCode = () => {
   return code
 }
 const phaseFor = (room) => {
-  if (room.participants.length < 3) return 'lobby'
+  if (!room.started || room.participants.length < 3) return 'lobby'
   if (room.stories.length < room.participants.length) return 'stories'
   const possibleVotes = room.participants.length * (room.stories.length - 1)
   return room.votes.length < possibleVotes ? 'votes' : 'results'
@@ -42,6 +42,8 @@ const publicState = (room, player) => {
     phase,
     participants: room.participants.map(({ id, name, storySubmitted }) => ({ id, name, storySubmitted })),
     me: { id: player.id, name: player.name, storySubmitted: Boolean(player.story) },
+    isHost: room.hostId === player.id,
+    canStart: room.hostId === player.id && room.participants.length >= 3 && !room.started,
     stories,
     pendingStoryIds: phase === 'votes' ? room.stories.filter((story) => story.authorId !== player.id && !myVotes.includes(story.id)).map((story) => story.id) : [],
     scores,
@@ -53,7 +55,7 @@ app.post('/api/rooms', (request, response) => {
   if (!name) return response.status(400).json({ error: 'Escribe tu nombre.' })
   const code = roomCode()
   const player = { id: randomUUID(), name, token: randomUUID(), story: '' }
-  rooms.set(code, { code, participants: [player], stories: [], votes: [] })
+  rooms.set(code, { code, hostId: player.id, started: false, participants: [player], stories: [], votes: [] })
   response.json({ code, token: player.token })
 })
 
@@ -68,6 +70,16 @@ app.post('/api/rooms/:code/join', (request, response) => {
   const player = { id: randomUUID(), name, token: randomUUID(), story: '' }
   room.participants.push(player)
   response.json({ code: room.code, token: player.token })
+})
+
+app.post('/api/rooms/:code/start', (request, response) => {
+  const room = getRoom(request.params.code)
+  const player = getPlayer(room, request.body?.token)
+  if (!room || !player) return response.status(401).json({ error: 'Sala o sesión no válida.' })
+  if (room.hostId !== player.id) return response.status(403).json({ error: 'Solo el anfitrión puede iniciar la partida.' })
+  if (room.participants.length < 3) return response.status(400).json({ error: 'Necesitas al menos tres participantes.' })
+  room.started = true
+  response.json(publicState(room, player))
 })
 
 app.get('/api/rooms/:code/state', (request, response) => {

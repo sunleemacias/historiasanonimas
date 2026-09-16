@@ -11,6 +11,8 @@ Juego grupal para descubrir quién escribió cada historia.
 
 La partida se conserva en el navegador con `localStorage`.
 
+Para jugar desde diferentes computadoras, crea una sala y comparte su código. El servidor mantiene las historias y votos; cada participante recibe solo su formulario privado, las historias sin autor y el ranking final.
+
 ## Desarrollo
 
 ```bash
@@ -19,6 +21,17 @@ npm run dev
 ```
 
 La aplicación estará disponible en `http://localhost:5173/`.
+
+Para probar el servidor completo en producción localmente:
+
+```bash
+npm run build
+npm start
+```
+
+## Render
+
+El archivo `render.yaml` configura un **Web Service**. Usa `npm install && npm run build` como build command y `npm start` como start command. No hace falta agregar una rewrite rule manual: Express sirve la aplicación y resuelve el fallback de `index.html`.
 
 ## Validación
 

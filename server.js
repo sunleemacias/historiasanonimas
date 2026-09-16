@@ -24,13 +24,22 @@ const roomCode = () => {
 const phaseFor = (room) => {
   if (!room.started || room.participants.length < 3) return 'lobby'
   if (room.stories.length < room.participants.length) return 'stories'
-  const possibleVotes = room.participants.length * (room.stories.length - 1)
-  return room.votes.length < possibleVotes ? 'votes' : 'results'
+  return room.voteRoundIndex >= room.stories.length ? 'results' : 'votes'
 }
 const publicState = (room, player) => {
   const phase = phaseFor(room)
-  const myVotes = room.votes.filter((vote) => vote.voterId === player.id).map((vote) => vote.storyId)
   const stories = room.stories.map(({ id, text }) => ({ id, text }))
+  const completedStories = room.stories.slice(0, room.voteRoundIndex)
+  const partialResults = completedStories.map((story, index) => ({
+    storyNumber: index + 1,
+    choices: room.participants.map((participant) => ({
+      id: participant.id,
+      name: participant.name,
+      votes: room.votes.filter((vote) => vote.storyId === story.id && vote.authorId === participant.id).length,
+    })),
+  }))
+  const currentStory = phase === 'votes' ? room.stories[room.voteRoundIndex] : null
+  const currentVotes = currentStory ? room.votes.filter((vote) => vote.storyId === currentStory.id) : []
   const scores = phase === 'results' ? room.participants.map((participant) => ({
     id: participant.id,
     name: participant.name,
@@ -45,7 +54,10 @@ const publicState = (room, player) => {
     isHost: room.hostId === player.id,
     canStart: room.hostId === player.id && room.participants.length >= 3 && !room.started,
     stories,
-    pendingStoryIds: phase === 'votes' ? room.stories.filter((story) => story.authorId !== player.id && !myVotes.includes(story.id)).map((story) => story.id) : [],
+    currentStory: currentStory ? { id: currentStory.id, text: currentStory.text } : null,
+    currentOptions: currentStory ? room.participants.map(({ id, name }) => ({ id, name })) : [],
+    hasVotedCurrentStory: Boolean(currentStory && currentVotes.some((vote) => vote.voterId === player.id)),
+    partialResults,
     scores,
   }
 }
@@ -55,7 +67,7 @@ app.post('/api/rooms', (request, response) => {
   if (!name) return response.status(400).json({ error: 'Escribe tu nombre.' })
   const code = roomCode()
   const player = { id: randomUUID(), name, token: randomUUID(), story: '' }
-  rooms.set(code, { code, hostId: player.id, started: false, participants: [player], stories: [], votes: [] })
+  rooms.set(code, { code, hostId: player.id, started: false, voteRoundIndex: 0, participants: [player], stories: [], votes: [] })
   response.json({ code, token: player.token })
 })
 
@@ -109,9 +121,13 @@ app.post('/api/rooms/:code/vote', (request, response) => {
   if (!room || !player) return response.status(401).json({ error: 'Sala o sesión no válida.' })
   if (phaseFor(room) !== 'votes') return response.status(400).json({ error: 'La votación aún no está disponible.' })
   const story = room.stories.find((item) => item.id === storyId)
-  if (!story || story.authorId === player.id || !room.participants.some((participant) => participant.id === authorId)) return response.status(400).json({ error: 'Voto no válido.' })
+  const currentStory = room.stories[room.voteRoundIndex]
+  if (!story || story.id !== currentStory?.id || !room.participants.some((participant) => participant.id === authorId)) return response.status(400).json({ error: 'Voto no válido.' })
   if (room.votes.some((vote) => vote.voterId === player.id && vote.storyId === storyId)) return response.status(400).json({ error: 'Ya votaste esta historia.' })
   room.votes.push({ voterId: player.id, storyId, authorId })
+  const eligibleVoters = room.participants
+  const votesForRound = room.votes.filter((vote) => vote.storyId === story.id)
+  if (votesForRound.length === eligibleVoters.length) room.voteRoundIndex += 1
   response.json(publicState(room, player))
 })
 

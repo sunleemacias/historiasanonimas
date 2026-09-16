@@ -11,7 +11,7 @@ Juego grupal para descubrir quién escribió cada historia.
 
 La partida se conserva en el navegador con `localStorage`.
 
-Para jugar desde diferentes computadoras, crea una sala y comparte su código. El anfitrión decide cuándo iniciar, después de confirmar que el equipo está listo. El servidor mantiene las historias y votos; cada participante recibe solo su formulario privado, las historias sin autor y el ranking final.
+Para jugar desde diferentes computadoras, crea una sala y comparte su código. El anfitrión decide cuándo iniciar, después de confirmar que el equipo está listo. La votación avanza historia por historia: nadie puede pasar a la siguiente hasta que todos hayan votado la actual. Después de cada ronda se muestra un gráfico parcial con todos los candidatos, sin revelar autores.
 
 ## Desarrollo
 
